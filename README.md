@@ -6,25 +6,14 @@ A structured development workflow for [Claude Code](https://claude.com/claude-co
 
 ## Why Adversarial?
 
-This workflow combines two distinct mechanisms that reinforce each other:
+Two mechanisms work together:
 
-### 1. Adversarial prompting — breaks compliance bias
+1. **Adversarial prompting** — Instead of "is my code good?", the workflow asks "find every reason to reject it." This breaks the LLM's natural compliance bias.
+2. **Context isolation** — Sub-agents receive only the artifact (plan or diff), not the reasoning behind it. This breaks anchoring bias and enables genuine critique.
 
-Instead of asking the AI "is my code good?", you ask it "find every reason to reject it." LLMs have a natural compliance bias — they tend to validate rather than challenge. By explicitly assigning the role of critic/adversary, we break this bias and get genuinely honest feedback.
+Neither is sufficient alone: an adversary needs both the motivation to criticize AND a genuinely different perspective.
 
-However, the same model critiquing its own output still shares its blind spots — it cannot find flaws in categories of problems it doesn't recognize.
-
-### 2. Context isolation — breaks anchoring bias
-
-If the reviewer has seen the reasoning behind a plan, they're unconsciously anchored to it — they look for confirmations rather than flaws. By giving sub-agents ONLY the artifact (the plan, the code diff) without any "why" behind the decisions, they're free to question everything.
-
-This is why the workflow persists artifacts to disk and sub-agents read from files — not from conversation context. The less context the agent has about the original reasoning, the more effective its critique.
-
-### The two together
-
-An adversary with both the **motivation to criticize** (adversarial prompting) AND a **genuinely different perspective** (context isolation). That's the difference between a superficial critique and one that finds real problems.
-
-## The 5 Phases
+## The 4 Phases
 
 ```mermaid
 flowchart TD
@@ -33,13 +22,12 @@ flowchart TD
     CritiqueLight --> |APPROVE| Impl
     Plan --> |"scope=standard/full"| Critique["Phase 2: Critique\n(Isolated sub-agents)"]
     Critique --> |APPROVE| Impl["Phase 3: Impl\n(Read-write)"]
-    Critique --> |REVISE| Amend["Amend Plan"]
+    Critique --> |REVISE| Plan
     Critique --> |REJECT| Start
-    Amend --> |"re-critique"| Critique
     Impl --> |"scope upgraded\n→ re-critique"| Critique
     Impl --> |"done"| Review["Phase 4: Review\n(Bug inventory + Verdict)"]
     Review --> |PASS| Done(["All gates passed"])
-    Review --> |FAIL| Fix["Phase 5: Fix blocks"]
+    Review --> |FAIL| Fix["Fix blocking issues"]
     Fix --> Review
 ```
 
@@ -48,18 +36,13 @@ flowchart TD
 | **1. Plan** | Architecture, edge cases, risks, test strategy, invariants | Read-only |
 | **2. Critique** | Adversarial review of the plan — break assumptions, find omissions | Read-only |
 | **3. Impl** | Strict implementation following the plan checklist, tests alongside code | Read-write |
-| **4. Review** | Adversarial code review: bug inventory + mandatory checklist + verdict | Read-only |
-| **5. Patch** | Fix blocking issues from review, then re-review until PASS | Read-write |
+| **4. Review** | Adversarial code review: bug inventory + mandatory checklist + PASS/FAIL verdict | Read-only |
+
+If review verdict is FAIL, fix blocking issues and re-run `/adw review` until PASS.
 
 ## Is it worth the overhead?
 
-**Honest answer: yes, it costs more tokens and is slower than one-shot coding.** No pretending otherwise.
-
-But consider:
-
-- **Scope "light"** exists for small changes — 1 agent, ~20-line critique. Almost zero overhead.
-- **The real math**: How many times have you had to revisit a change because you missed an edge case, or because the initial architecture didn't hold? Every fix-review loop avoided in production pays back the workflow cost several times over.
-- **Interruption-resistant**: State is persisted to disk (`~/.adw/`). If Claude Code hits its context limit, or you take a break, nothing is lost. Run `/adw` to pick up exactly where you left off. What looks like an overhead (it's slow) is actually a feature (it survives interruptions).
+Yes, it costs more tokens than one-shot coding. But scope "light" adds near-zero overhead for small changes, every edge case caught before production pays back the cost, and state persistence means interrupted sessions lose no progress.
 
 ## Quick Start
 
@@ -115,11 +98,7 @@ Workflow state is stored in `~/.adw/{project-name}/`:
 └── review.md       # Review findings and verdict
 ```
 
-- **`{project-name}`** is the basename of your working directory
-- State survives context window limits and session changes
-- `/adw` (guided mode) reads state to propose the next step
-- `/adw status` shows state without taking action
-- `/adw clean` removes state for the current project
+`{project-name}` is the basename of your working directory. State survives context window limits and session changes — run `/adw` to pick up where you left off.
 
 ## Uninstall
 
@@ -128,7 +107,7 @@ cd adversarial-dev-workflow
 ./uninstall.sh
 ```
 
-This removes the skill symlink. Your workflow state in `~/.adw/` is preserved — use `/adw clean` per project before uninstalling, or `rm -rf ~/.adw/` to remove everything.
+This removes the skill symlink. Your workflow state in `~/.adw/` is preserved — remove it with `rm -rf ~/.adw/` if desired.
 
 ## Requirements
 
