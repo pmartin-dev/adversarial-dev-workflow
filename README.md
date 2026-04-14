@@ -29,7 +29,7 @@ Takes a plan (file or text), launches an isolated adversarial agent, and iterate
        → No  → Stop
 ```
 
-**Confidence score:** `max(0, 100 − (CRITICAL×25 + HIGH×10 + MEDIUM×3 + LOW×1))`
+**Confidence score:** `max(0, 100 − (CRITICAL×20 + HIGH×10 + MEDIUM×3 + LOW×1))` — only counts findings with CERTAIN or LIKELY conviction (POSSIBLE findings are shown but not scored)
 
 **Example:**
 ```
@@ -74,13 +74,15 @@ Gets the git diff, launches an isolated adversarial agent, and scores confidence
 - The reasoning behind the plan or code
 - Previous iterations
 
-It receives **only**: the artifact (plan text or diff) + the adversarial instruction.
+For `/adw-plan`, the agent receives **only** the plan text + the adversarial instruction.
+
+For `/adw-changes`, the agent receives the diff + the adversarial instruction, and has read-only access to files referenced in the diff (callers, tests, interfaces) to verify its findings. It cannot see unrelated parts of the codebase.
 
 ## Quick Start
 
 ```bash
 # Clone the repo
-git clone <repo-url> adversarial-dev-workflow
+git clone https://github.com/pmartin-dev/adversarial-dev-workflow.git
 cd adversarial-dev-workflow
 
 # Install the skills

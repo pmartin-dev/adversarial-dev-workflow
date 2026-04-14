@@ -17,7 +17,11 @@ You are running an adversarial challenge on a software plan.
 
 `CONFIDENCE_THRESHOLD = 80`
 
-Score formula: `max(0, 100 - (nb_CRITICAL × 25 + nb_HIGH × 10 + nb_MEDIUM × 3 + nb_LOW × 1))`
+Score formula (see Step 3 for details):
+- Each finding has a severity (CRITICAL/HIGH/MEDIUM/LOW) and a conviction (CERTAIN/LIKELY/POSSIBLE).
+- Only CERTAIN and LIKELY findings affect the score. POSSIBLE findings are shown but do not penalize.
+- `penalty = nb_CRITICAL × 20 + nb_HIGH × 10 + nb_MEDIUM × 3 + nb_LOW × 1` (counting only CERTAIN/LIKELY)
+- `SCORE = max(0, 100 - penalty)`
 
 ---
 
@@ -62,13 +66,22 @@ Attack:
 - Risks with no mitigation
 
 For each issue found, output exactly:
-[SEVERITY] Short title — detailed explanation
+[SEVERITY|CONVICTION] Short title — detailed explanation
 
 SEVERITY must be one of: CRITICAL, HIGH, MEDIUM, LOW.
 - CRITICAL: Makes the plan fundamentally broken or unimplementable
 - HIGH: Significant gap that will likely cause bugs or failures
 - MEDIUM: Notable weakness that should be addressed
 - LOW: Minor improvement opportunity
+
+CONVICTION must be one of: CERTAIN, LIKELY, POSSIBLE.
+- CERTAIN: This IS a concrete problem — you can point to a specific contradiction, missing step, or broken invariant in the plan.
+- LIKELY: This will probably cause issues given reasonable assumptions about the implementation context.
+- POSSIBLE: This could be a problem under certain conditions, but depends on unknowns or is theoretical.
+
+Be honest about conviction. A speculative edge case is POSSIBLE, not CERTAIN. A clear logical contradiction is CERTAIN, not LIKELY. Inflating conviction undermines the review.
+
+This is a PLAN, not code. A plan defines what to do and why, not how to implement every detail. Do NOT flag the absence of implementation details (error handling strategy, exact data structures, naming conventions, specific algorithms) — those decisions belong at coding time, not planning time. Focus on flaws in the plan's logic, structure, and decisions.
 
 Do NOT justify any decisions. Do NOT suggest fixes. Do NOT approve anything. Attack only.
 Output only the issue list. No preamble, no conclusion.
@@ -80,13 +93,23 @@ If the agent returns empty or clearly non-substantive results (e.g., "No issues 
 
 ## Step 3 — Compute confidence score
 
-Count the issues by severity from the agent's output:
-- `nb_CRITICAL` = number of `[CRITICAL]` items
-- `nb_HIGH` = number of `[HIGH]` items
-- `nb_MEDIUM` = number of `[MEDIUM]` items
-- `nb_LOW` = number of `[LOW]` items
+Parse each finding's `[SEVERITY|CONVICTION]` tag. Count issues by severity, split by conviction:
 
-`SCORE = max(0, 100 - (nb_CRITICAL × 25 + nb_HIGH × 10 + nb_MEDIUM × 3 + nb_LOW × 1))`
+**Scoring group** (affects the score): findings with conviction CERTAIN or LIKELY.
+**Display-only group** (shown but no penalty): findings with conviction POSSIBLE.
+
+Count only the scoring group:
+- `nb_CRITICAL` = CRITICAL findings with CERTAIN or LIKELY conviction
+- `nb_HIGH` = HIGH findings with CERTAIN or LIKELY conviction
+- `nb_MEDIUM` = MEDIUM findings with CERTAIN or LIKELY conviction
+- `nb_LOW` = LOW findings with CERTAIN or LIKELY conviction
+
+Also count display-only:
+- `nb_POSSIBLE` = total findings with POSSIBLE conviction (any severity)
+
+`SCORE = max(0, 100 - (nb_CRITICAL × 20 + nb_HIGH × 10 + nb_MEDIUM × 3 + nb_LOW × 1))`
+
+If the agent did not use the `[SEVERITY|CONVICTION]` format (e.g., only `[SEVERITY]`), treat all findings as LIKELY conviction (they all count).
 
 ---
 
@@ -103,7 +126,8 @@ Output in this format:
 
 ### Score
 
-Confidence: {SCORE}% ({nb_CRITICAL} CRITICAL, {nb_HIGH} HIGH, {nb_MEDIUM} MEDIUM, {nb_LOW} LOW)
+Confidence: {SCORE}% ({nb_CRITICAL} CRITICAL, {nb_HIGH} HIGH, {nb_MEDIUM} MEDIUM, {nb_LOW} LOW — scoring)
+{nb_POSSIBLE} additional POSSIBLE findings (shown above, not scored)
 ```
 
 ---
@@ -135,7 +159,7 @@ Use AskUserQuestion with:
 - Options (if `ITERATION >= 3`):
   - "Keep iterating" — Continue despite diminishing returns
   - "Accept at {SCORE}%" — Stop and optionally save the current plan
-  - "Start over" — Abandon this plan and begin fresh
+  - "Start over" — Abandon this plan and begin fresh. Output: "Run `/adw-plan` again with a revised plan." Then stop.
 
 ---
 
@@ -156,12 +180,14 @@ Here is a software development plan and a list of issues found by an adversarial
 
 ## Issues to address
 
-{findings from Step 2, verbatim}
+{findings from Step 2, with POSSIBLE findings removed — only include CERTAIN and LIKELY findings}
 
 Your mission: amend the plan to address these issues.
 
 Rules:
 - Address ALL CRITICAL items. Address ALL HIGH items. Address MEDIUM items where clearly warranted. Skip LOW items unless trivial.
+- **Stay at the same level of abstraction as the original plan.** A plan defines what to do and why, not implementation details. Address issues by clarifying decisions, constraints, and boundaries — NOT by adding implementation specifics (error handling code, exact data structures, algorithm details, naming). If a critique demands implementation detail, acknowledge the constraint it reveals (e.g., "must handle concurrent access") without specifying the mechanism.
+- Do NOT make the plan longer unless strictly necessary. Prefer replacing vague statements with precise ones over adding new sections.
 - Be direct and mechanical. Do not defend any existing decision. Do not add commentary.
 - Preserve all sections and content that were NOT challenged.
 - Mark every change with [AMENDED] inline.
@@ -170,7 +196,7 @@ Rules:
 
 If the agent returns empty or error output, stop with: "Amendment agent failed. Re-run `/adw-plan` to retry."
 
-Extract the amended plan from the agent's output (everything before "### What changed") and store as `CURRENT_PLAN`.
+Extract the amended plan from the agent's output: look for a heading containing "What changed" (any level: `###`, `##`, `**What changed**`). Everything before that heading is the amended plan — store it as `CURRENT_PLAN`. If no such heading is found, treat the entire output as the amended plan.
 
 Output:
 

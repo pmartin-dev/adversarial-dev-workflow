@@ -17,7 +17,11 @@ You are running an adversarial challenge on code changes.
 
 `CONFIDENCE_THRESHOLD = 80`
 
-Score formula: `max(0, 100 - (nb_CRITICAL × 25 + nb_HIGH × 10 + nb_MEDIUM × 3 + nb_LOW × 1))`
+Score formula (see Step 3 for details):
+- Each finding has a severity (CRITICAL/HIGH/MEDIUM/LOW) and a conviction (CERTAIN/LIKELY/POSSIBLE).
+- Only CERTAIN and LIKELY findings affect the score. POSSIBLE findings are shown but do not penalize.
+- `penalty = nb_CRITICAL × 20 + nb_HIGH × 10 + nb_MEDIUM × 3 + nb_LOW × 1` (counting only CERTAIN/LIKELY)
+- `SCORE = max(0, 100 - penalty)`
 
 ---
 
@@ -71,13 +75,20 @@ Attack:
 - Missing tests (for changed behavior, edge cases, error paths)
 
 For each issue found, output exactly:
-[SEVERITY] file:line — Short title — detailed explanation
+[SEVERITY|CONVICTION] file:line — Short title — detailed explanation
 
 SEVERITY must be one of: CRITICAL, HIGH, MEDIUM, LOW.
 - CRITICAL: Bug that will cause failures, data loss, or security breach in production
 - HIGH: Significant defect that likely causes wrong behavior or security weakness
 - MEDIUM: Notable issue that should be fixed before merging
 - LOW: Minor issue or improvement opportunity
+
+CONVICTION must be one of: CERTAIN, LIKELY, POSSIBLE.
+- CERTAIN: You can demonstrate this IS a bug — wrong logic, provably broken invariant, confirmed vulnerability. You SHOULD use file tools to verify before claiming CERTAIN.
+- LIKELY: This will probably cause issues given reasonable assumptions about usage and environment.
+- POSSIBLE: This could be a problem under specific conditions, but depends on unknowns or is theoretical.
+
+Be honest about conviction. A speculative "what if this method is never called" is POSSIBLE, not CERTAIN. A provably wrong comparison operator is CERTAIN. Inflating conviction undermines the review.
 
 If a finding does not have a specific line, use the filename only (no `:line`).
 Do NOT propose fixes. Do NOT approve anything. Attack only.
@@ -96,13 +107,23 @@ If the agent returns empty or clearly non-substantive results (e.g., "No issues 
 
 ## Step 3 — Compute confidence score
 
-Count the issues by severity from the agent's output:
-- `nb_CRITICAL` = number of `[CRITICAL]` items
-- `nb_HIGH` = number of `[HIGH]` items
-- `nb_MEDIUM` = number of `[MEDIUM]` items
-- `nb_LOW` = number of `[LOW]` items
+Parse each finding's `[SEVERITY|CONVICTION]` tag. Count issues by severity, split by conviction:
 
-`SCORE = max(0, 100 - (nb_CRITICAL × 25 + nb_HIGH × 10 + nb_MEDIUM × 3 + nb_LOW × 1))`
+**Scoring group** (affects the score): findings with conviction CERTAIN or LIKELY.
+**Display-only group** (shown but no penalty): findings with conviction POSSIBLE.
+
+Count only the scoring group:
+- `nb_CRITICAL` = CRITICAL findings with CERTAIN or LIKELY conviction
+- `nb_HIGH` = HIGH findings with CERTAIN or LIKELY conviction
+- `nb_MEDIUM` = MEDIUM findings with CERTAIN or LIKELY conviction
+- `nb_LOW` = LOW findings with CERTAIN or LIKELY conviction
+
+Also count display-only:
+- `nb_POSSIBLE` = total findings with POSSIBLE conviction (any severity)
+
+`SCORE = max(0, 100 - (nb_CRITICAL × 20 + nb_HIGH × 10 + nb_MEDIUM × 3 + nb_LOW × 1))`
+
+If the agent did not use the `[SEVERITY|CONVICTION]` format (e.g., only `[SEVERITY]`), treat all findings as LIKELY conviction (they all count).
 
 ---
 
@@ -119,7 +140,8 @@ Output in this format:
 
 ### Score
 
-Confidence: {SCORE}% ({nb_CRITICAL} CRITICAL, {nb_HIGH} HIGH, {nb_MEDIUM} MEDIUM, {nb_LOW} LOW)
+Confidence: {SCORE}% ({nb_CRITICAL} CRITICAL, {nb_HIGH} HIGH, {nb_MEDIUM} MEDIUM, {nb_LOW} LOW — scoring)
+{nb_POSSIBLE} additional POSSIBLE findings (shown above, not scored)
 ```
 
 ---
